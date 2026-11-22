@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,8 +23,13 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 sealed interface Screen {
+    /** Step 1: what to browse (all / dates / a folder). */
+    data object Source : Screen
+    /** Step 2: the working folder that selected photos are copied to. */
     data object Folders : Screen
     data object Grid : Screen
     data class Viewer(val startIndex: Int) : Screen
@@ -39,6 +45,15 @@ sealed interface Feedback {
     data class ConfirmDelete(val request: IntentSender) : Feedback
 }
 
+/** The grid is a list of day headers, each followed by that day's photos. */
+sealed interface GridEntry {
+    data class Header(val day: LocalDate, val count: Int) : GridEntry
+    data class Cell(val photoIndex: Int) : GridEntry
+}
+
+/** Where a photo sits within its day: [position] of [count] photos taken on [day]. */
+data class PhotoDay(val day: LocalDate, val position: Int, val count: Int)
+
 /** Languages offered for speech recognition: tag → label. */
 val SPEECH_LANGUAGES = linkedMapOf(
     "el-GR" to "Ελληνικά",
@@ -49,7 +64,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = MediaRepository(app)
     private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    var screen by mutableStateOf<Screen>(Screen.Folders)
+    var screen by mutableStateOf<Screen>(Screen.Source)
+        private set
+
+    var source by mutableStateOf<PhotoSource>(PhotoSource.All)
+        private set
+
+    /** Every album on the phone, for choosing what to browse. */
+    var sourceAlbums by mutableStateOf<List<Album>>(emptyList())
         private set
 
     var albums by mutableStateOf<List<Album>>(emptyList())
@@ -60,6 +82,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var photos by mutableStateOf<List<Photo>>(emptyList())
         private set
     var photosLoading by mutableStateOf(false)
+        private set
+
+    /** Day headers + photo cells for the grid. */
+    var gridEntries by mutableStateOf<List<GridEntry>>(emptyList())
+        private set
+    /** For each photo index: its index in [gridEntries]. */
+    private var entryIndexOfPhoto = IntArray(0)
+    /** For each photo index: its day and position within that day. */
+    var photoDays by mutableStateOf<List<PhotoDay>>(emptyList())
         private set
 
     /** Working folder as a MediaStore RELATIVE_PATH, e.g. "Pictures/Favourites/". */
@@ -88,7 +119,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val gridState = LazyGridState()
-    private var photosLoadedFor: String? = null
+    private var photosLoadedFor: Pair<PhotoSource, String>? = null
 
     private val _events = MutableSharedFlow<Feedback>(extraBufferCapacity = 8)
     val events: SharedFlow<Feedback> = _events
@@ -114,27 +145,81 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun loadAlbums() {
         viewModelScope.launch {
             albumsLoading = true
-            albums = runCatching { repo.listAlbums() }.getOrDefault(emptyList())
+            albums = runCatching { repo.listAlbums(writableOnly = true) }.getOrDefault(emptyList())
             albumsLoading = false
         }
+    }
+
+    fun loadSourceAlbums() {
+        viewModelScope.launch {
+            sourceAlbums = runCatching { repo.listAlbums(writableOnly = false) }.getOrDefault(emptyList())
+        }
+    }
+
+    /** Short description of what is being browsed, e.g. "All photos", "Πάσχα 2024", "📁 Camera". */
+    val sourceLabel: String
+        get() = when (val s = source) {
+            PhotoSource.All -> "All photos"
+            is PhotoSource.Folder -> "📁 " + MediaRepository.folderName(s.relPath)
+            is PhotoSource.Dates -> s.label ?: DateFormats.range(s.start, s.end)
+        }
+
+    fun chooseSource(src: PhotoSource) {
+        source = src
+        loadAlbums()
+        screen = Screen.Folders
+    }
+
+    fun backToSource() {
+        screen = Screen.Source
     }
 
     fun chooseFolder(relPath: String) {
         folder = relPath
         prefs.edit().putString(KEY_FOLDER, relPath).apply()
         scheduleFolderRefresh(immediate = true)
-        if (photosLoadedFor != relPath) loadPhotos(relPath)
+        val key = source to relPath
+        if (photosLoadedFor != key) loadPhotos(key)
         screen = Screen.Grid
     }
 
-    private fun loadPhotos(excludeRelPath: String) {
+    private fun loadPhotos(key: Pair<PhotoSource, String>) {
         viewModelScope.launch {
             photosLoading = true
-            photos = runCatching { repo.loadAllImages(excludeRelPath) }.getOrDefault(emptyList())
-            photosLoadedFor = excludeRelPath
+            val loaded = runCatching { repo.loadImages(key.first, key.second) }.getOrDefault(emptyList())
+            val sections = withContext(Dispatchers.Default) { buildSections(loaded) }
+            photos = loaded
+            gridEntries = sections.entries
+            entryIndexOfPhoto = sections.entryIndexOfPhoto
+            photoDays = sections.days
+            photosLoadedFor = key
             photosLoading = false
             gridState.scrollToItem(0)
         }
+    }
+
+    private class Sections(val entries: List<GridEntry>, val entryIndexOfPhoto: IntArray, val days: List<PhotoDay>)
+
+    /** Groups photos (already sorted newest first) by the day they were taken. */
+    private fun buildSections(photos: List<Photo>): Sections {
+        val dayOf = photos.map { DateFormats.dayOf(it.dateMillis) }
+        val entries = ArrayList<GridEntry>(photos.size + photos.size / 4)
+        val entryIndex = IntArray(photos.size)
+        val days = ArrayList<PhotoDay>(photos.size)
+        var i = 0
+        while (i < photos.size) {
+            val day = dayOf[i]
+            var j = i
+            while (j < photos.size && dayOf[j] == day) j++
+            entries += GridEntry.Header(day, j - i)
+            for (k in i until j) {
+                entryIndex[k] = entries.size
+                entries += GridEntry.Cell(k)
+                days += PhotoDay(day, k - i + 1, j - i)
+            }
+            i = j
+        }
+        return Sections(entries, entryIndex, days)
     }
 
     fun openViewer(index: Int) {
@@ -144,10 +229,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Called when leaving the viewer; keeps the grid scrolled near the last photo viewed. */
     fun closeViewer(lastIndex: Int) {
         screen = Screen.Grid
+        val entry = entryIndexOfPhoto.getOrNull(lastIndex) ?: return
         viewModelScope.launch {
             val visible = gridState.layoutInfo.visibleItemsInfo
-            val shown = visible.any { it.index == lastIndex }
-            if (!shown) gridState.scrollToItem(lastIndex)
+            val shown = visible.any { it.index == entry }
+            // Scroll so the photo's day header is visible too, when possible.
+            if (!shown) gridState.scrollToItem((entry - 1).coerceAtLeast(0))
         }
     }
 

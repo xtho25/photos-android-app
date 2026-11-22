@@ -57,6 +57,9 @@ fun FolderPickerScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Choose working folder") },
+                navigationIcon = {
+                    TextButton(onClick = vm::backToSource) { Text("←", fontSize = 20.sp) }
+                },
                 actions = {
                     TextButton(onClick = { showSettings = true }) { Text("⚙", fontSize = 20.sp) }
                 },
@@ -71,6 +74,11 @@ fun FolderPickerScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
+                Text(
+                    "Browsing: ${vm.sourceLabel}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
                 Text(
                     "Photos you pick by saying «${vm.keyword}» are copied into this folder. " +
                         "Tap ⚙ to change the word.",

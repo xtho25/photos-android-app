@@ -19,6 +19,8 @@ data class Photo(
     val mime: String,
     val size: Long,
     val dateTaken: Long?,
+    /** When the photo was taken (falls back to when it was added to the phone), epoch millis. */
+    val dateMillis: Long,
 ) {
     /** Identifies "the same picture" across folders (a copy keeps name and size). */
     val key: String get() = "$name|$size"
@@ -52,42 +54,70 @@ class MediaRepository(context: Context) {
     private val readUri: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
     private val writeUri: Uri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
-    /** Every image on the device, newest first, except those already in [excludeRelPath]. */
-    suspend fun loadAllImages(excludeRelPath: String?): List<Photo> = withContext(Dispatchers.IO) {
+    /** Images from [source], newest first, except those already in [excludeRelPath]. */
+    suspend fun loadImages(source: PhotoSource, excludeRelPath: String?): List<Photo> = withContext(Dispatchers.IO) {
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
             MediaStore.Images.Media.MIME_TYPE,
             MediaStore.Images.Media.SIZE,
             MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.DATE_ADDED,
         )
-        val selection = excludeRelPath?.let { "${MediaStore.Images.Media.RELATIVE_PATH} != ?" }
-        val args = excludeRelPath?.let { arrayOf(it) }
-        val sort = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
+        val rel = MediaStore.Images.Media.RELATIVE_PATH
+        val taken = MediaStore.Images.Media.DATE_TAKEN
+        val added = MediaStore.Images.Media.DATE_ADDED // seconds, unlike DATE_TAKEN (millis)
+        val clauses = ArrayList<String>()
+        val args = ArrayList<String>()
+        if (excludeRelPath != null) {
+            clauses += "$rel != ?"
+            args += excludeRelPath
+        }
+        when (source) {
+            PhotoSource.All -> Unit
+            is PhotoSource.Folder -> {
+                clauses += "$rel = ?"
+                args += source.relPath
+            }
+            is PhotoSource.Dates -> {
+                val from = DateFormats.startMillis(source.start)
+                val until = DateFormats.startMillis(source.end.plusDays(1))
+                clauses += "(($taken > 0 AND $taken >= ? AND $taken < ?) OR " +
+                    "(($taken IS NULL OR $taken <= 0) AND $added >= ? AND $added < ?))"
+                args += listOf(from, until, from / 1000, until / 1000).map(Long::toString)
+            }
+        }
+        val selection = clauses.takeIf { it.isNotEmpty() }?.joinToString(" AND ")
         val out = ArrayList<Photo>()
-        resolver.query(readUri, projection, selection, args, sort)?.use { c ->
+        resolver.query(readUri, projection, selection, args.toTypedArray(), null)?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
             val nameCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
             val sizeCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
             val takenCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val addedCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
+                val takenMs = if (c.isNull(takenCol)) null else c.getLong(takenCol).takeIf { it > 0 }
                 out += Photo(
                     id = id,
                     uri = ContentUris.withAppendedId(readUri, id),
                     name = c.getString(nameCol) ?: "photo_$id.jpg",
                     mime = c.getString(mimeCol) ?: "image/jpeg",
                     size = c.getLong(sizeCol),
-                    dateTaken = if (c.isNull(takenCol)) null else c.getLong(takenCol),
+                    dateTaken = takenMs,
+                    dateMillis = takenMs ?: (c.getLong(addedCol) * 1000),
                 )
             }
         }
-        out
+        out.sortedByDescending { it.dateMillis }
     }
 
-    /** Existing albums that this app is allowed to add images to (under Pictures/ or DCIM/). */
-    suspend fun listAlbums(): List<Album> = withContext(Dispatchers.IO) {
+    /**
+     * Albums on the phone. With [writableOnly], only those this app may add images to
+     * (under Pictures/ or DCIM/).
+     */
+    suspend fun listAlbums(writableOnly: Boolean): List<Album> = withContext(Dispatchers.IO) {
         val counts = HashMap<String, Int>()
         resolver.query(
             readUri,
@@ -100,7 +130,7 @@ class MediaRepository(context: Context) {
                 counts[path] = (counts[path] ?: 0) + 1
             }
         }
-        counts.filterKeys { isWritable(it) }
+        counts.filterKeys { !writableOnly || isWritable(it) }
             .map { (path, n) -> Album(folderName(path), path, n) }
             .sortedByDescending { it.count }
     }

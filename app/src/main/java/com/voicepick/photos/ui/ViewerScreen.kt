@@ -66,6 +66,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.voicepick.photos.AppViewModel
+import com.voicepick.photos.DateFormats
 import com.voicepick.photos.Feedback
 import com.voicepick.photos.KeywordListener
 import com.voicepick.photos.KeywordMatcher
@@ -217,18 +218,41 @@ fun ViewerScreen(vm: AppViewModel, startIndex: Int) {
             CounterBadge(vm.folderName, vm.folderCount)
         }
 
-        // Mic status under the top bar.
-        MicIndicator(
-            status = status,
-            keyword = keyword,
-            modifier = Modifier
+        // Under the top bar: when the photo was taken, then the mic status.
+        Column(
+            Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 8.dp, top = 56.dp),
-            onClick = {
-                if (!hasMic) micLauncher.launch(Manifest.permission.RECORD_AUDIO) else showSettings = true
-            },
-        )
+                .padding(start = 8.dp, top = 52.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val photo = photos.getOrNull(pager.currentPage)
+            val day = vm.photoDays.getOrNull(pager.currentPage)
+            if (photo != null && day != null) {
+                Pill {
+                    Column {
+                        Text(
+                            DateFormats.dayHeader(day.day),
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            DateFormats.time(photo.dateMillis) + "  ·  ${day.position} / ${day.count} this day",
+                            color = Color(0xFFDDDDDD),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+            MicIndicator(
+                status = status,
+                keyword = keyword,
+                onClick = {
+                    if (!hasMic) micLauncher.launch(Manifest.permission.RECORD_AUDIO) else showSettings = true
+                },
+            )
+        }
 
         // Feedback flash in the middle.
         AnimatedVisibility(
@@ -292,7 +316,7 @@ private fun Pill(
 ) {
     Box(
         modifier
-            .background(color, RoundedCornerShape(50))
+            .background(color, RoundedCornerShape(16.dp))
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,

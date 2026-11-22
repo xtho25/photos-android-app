@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.voicepick.photos.ui.FolderPickerScreen
 import com.voicepick.photos.ui.GridScreen
+import com.voicepick.photos.ui.SourceScreen
 import com.voicepick.photos.ui.ViewerScreen
 
 class MainActivity : ComponentActivity() {
@@ -64,7 +65,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(vm: AppViewModel = viewModel()) {
     when (val screen = vm.screen) {
-        Screen.Folders -> FolderPickerScreen(vm)
+        Screen.Source -> SourceScreen(vm)
+        Screen.Folders -> {
+            BackHandler { vm.backToSource() }
+            FolderPickerScreen(vm)
+        }
         Screen.Grid -> {
             BackHandler { vm.backToFolders() }
             GridScreen(vm)
