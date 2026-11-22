@@ -12,7 +12,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 
-enum class ListenStatus { Off, Starting, Listening, Hearing, Unavailable, NoPermission, Error }
+enum class ListenStatus { Off, Disabled, Starting, Listening, Hearing, Unavailable, NoPermission, Error }
 
 /**
  * Keeps Android's SpeechRecognizer running in a loop in [language] (e.g. "el-GR") and calls

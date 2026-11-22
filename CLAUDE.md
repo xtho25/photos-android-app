@@ -43,11 +43,15 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
    because MediaStore only allows image inserts there.
 3. **Grid** (`ui/GridScreen.kt`): photos grouped by day (`GridEntry.Header` / `GridEntry.Cell`),
    with a fast-scroll handle that shows a month bubble, a ✓ on photos already in the folder,
-   and the counter badge plus ⚙ in the top bar.
+   and the counter badge plus ⚙ in the top bar. Below the top bar, an **Order** row switches
+   between ↓ Newest first and ↑ Oldest first (`AppViewModel.setSortNewestFirst`). It reverses the
+   loaded list and rebuilds the day sections, and the viewer follows the same order.
 4. **Viewer** (`ui/ViewerScreen.kt`): `HorizontalPager` with pinch/double-tap zoom. Shows the
    counter, the date/time and position within the day, a mic status chip (tap it for settings),
    a flash plus vibration on add/remove, and the ＋ Add / ✕ Remove buttons. Voice listening runs
-   only while this screen is visible and resumed, and the screen is kept on.
+   only while this screen is visible and resumed, and only if voice selection is on in settings;
+   the screen is kept on only while voice is on. With voice off, the mic chip shows
+   "Voice off · use ＋ Add" (`ListenStatus.Disabled`) and photos are added with the button only.
 
 ## Code map (`app/src/main/java/com/voicepick/photos/`)
 
@@ -102,7 +106,8 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   via `DateUtils`).
 - `MainActivity.kt`: permission gate (READ_MEDIA_IMAGES or READ_EXTERNAL_STORAGE, plus
   RECORD_AUDIO), theme (dynamic colour), and the screen switch with back handling.
-- `ui/CounterBadge.kt`, `ui/SettingsDialog.kt`: the settings dialog holds the selection word and
+- `ui/CounterBadge.kt`, `ui/SettingsDialog.kt`: the settings dialog holds the Voice selection
+  on/off switch (`voiceEnabled`), the selection word and
   the speech language (el-GR / en-US).
 
 ## Behaviour rules worth keeping
@@ -112,7 +117,8 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   detection, ✓ marks and remove.
 - The working folder is excluded from the browsed photos, so you never swipe onto copies.
 - A photo's date is `DATE_TAKEN`, falling back to `DATE_ADDED`. Lists are sorted newest first in Kotlin.
-- Settings (working folder, keyword, language) live in SharedPreferences `settings`.
+- Settings live in SharedPreferences `settings`: `folder`, `keyword`, `language`, `voice_enabled`
+  (default true) and `newest_first` (default true).
 - UI text is English and inline (no string resources apart from `app_name`). Dates follow the phone locale.
 
 ## Working on this repo

@@ -80,8 +80,12 @@ fun FolderPickerScreen(vm: AppViewModel) {
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
                 Text(
-                    "Photos you pick by saying «${vm.keyword}» are copied into this folder. " +
-                        "Tap ⚙ to change the word.",
+                    if (vm.voiceEnabled) {
+                        "Photos you pick by saying «${vm.keyword}» or tapping ＋ Add are copied into this folder. " +
+                            "Tap ⚙ to change the word or turn voice off."
+                    } else {
+                        "Photos you pick with ＋ Add are copied into this folder. Voice selection is off (⚙)."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))

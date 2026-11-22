@@ -124,12 +124,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var language by mutableStateOf(prefs.getString(KEY_LANGUAGE, null) ?: DEFAULT_LANGUAGE)
         private set
 
-    fun saveSettings(word: String, lang: String) {
+    /** When off, the viewer doesn't listen; photos are added only with the ＋ Add button. */
+    var voiceEnabled by mutableStateOf(prefs.getBoolean(KEY_VOICE, true))
+        private set
+
+    fun saveSettings(word: String, lang: String, voice: Boolean) {
         val w = word.trim()
         if (!KeywordMatcher(w).isValid) return
         keyword = w
         language = lang
-        prefs.edit().putString(KEY_WORD, w).putString(KEY_LANGUAGE, lang).apply()
+        voiceEnabled = voice
+        prefs.edit().putString(KEY_WORD, w).putString(KEY_LANGUAGE, lang).putBoolean(KEY_VOICE, voice).apply()
+    }
+
+    /** Photo order in the grid and viewer: newest first (default) or oldest first. */
+    var newestFirst by mutableStateOf(prefs.getBoolean(KEY_NEWEST_FIRST, true))
+        private set
+
+    fun setSortNewestFirst(newest: Boolean) {
+        if (newest == newestFirst) return
+        newestFirst = newest
+        prefs.edit().putBoolean(KEY_NEWEST_FIRST, newest).apply()
+        viewModelScope.launch {
+            applyPhotos(photos.asReversed().toList())
+            gridState.scrollToItem(0)
+        }
     }
 
     val gridState = LazyGridState()
@@ -250,20 +269,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     else -> all
                 }
             }.getOrDefault(emptyList())
-            val sections = withContext(Dispatchers.Default) { buildSections(loaded) }
-            photos = loaded
-            gridEntries = sections.entries
-            entryIndexOfPhoto = sections.entryIndexOfPhoto
-            photoDays = sections.days
+            // The repository returns newest first.
+            applyPhotos(if (newestFirst) loaded else loaded.asReversed().toList())
             photosLoadedFor = key
             photosLoading = false
             gridState.scrollToItem(0)
         }
     }
 
+    private suspend fun applyPhotos(list: List<Photo>) {
+        val sections = withContext(Dispatchers.Default) { buildSections(list) }
+        photos = list
+        gridEntries = sections.entries
+        entryIndexOfPhoto = sections.entryIndexOfPhoto
+        photoDays = sections.days
+    }
+
     private class Sections(val entries: List<GridEntry>, val entryIndexOfPhoto: IntArray, val days: List<PhotoDay>)
 
-    /** Groups photos (already sorted newest first) by the day they were taken. */
+    /** Groups photos (already sorted by date, either direction) by the day they were taken. */
     private fun buildSections(photos: List<Photo>): Sections {
         val dayOf = photos.map { DateFormats.dayOf(it.dateMillis) }
         val entries = ArrayList<GridEntry>(photos.size + photos.size / 4)
@@ -389,6 +413,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private const val KEY_FOLDER = "folder"
         private const val KEY_WORD = "keyword"
         private const val KEY_LANGUAGE = "language"
+        private const val KEY_VOICE = "voice_enabled"
+        private const val KEY_NEWEST_FIRST = "newest_first"
         const val DEFAULT_WORD = "Αυτή"
         const val DEFAULT_LANGUAGE = "el-GR"
     }

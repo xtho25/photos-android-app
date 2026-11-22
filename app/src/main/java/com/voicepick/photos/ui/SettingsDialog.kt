@@ -7,6 +7,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -14,6 +15,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.voicepick.photos.AppViewModel
 import com.voicepick.photos.KeywordMatcher
@@ -25,6 +28,7 @@ fun SettingsDialog(vm: AppViewModel, onDismiss: () -> Unit) {
     var word by rememberSaveable { mutableStateOf(vm.keyword) }
     var lang by rememberSaveable { mutableStateOf(vm.language) }
     var langTouched by rememberSaveable { mutableStateOf(false) }
+    var voice by rememberSaveable { mutableStateOf(vm.voiceEnabled) }
     val valid = KeywordMatcher(word).isValid
 
     AlertDialog(
@@ -32,11 +36,19 @@ fun SettingsDialog(vm: AppViewModel, onDismiss: () -> Unit) {
         title = { Text("Voice settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Say this word while viewing a photo to add it to the folder.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Voice selection", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (voice) "Say the word while viewing a photo to add it."
+                            else "Off: add photos only with the ＋ Add button.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(checked = voice, onCheckedChange = { voice = it })
+                }
                 OutlinedTextField(
+                    enabled = voice,
                     value = word,
                     onValueChange = {
                         word = it
@@ -52,21 +64,22 @@ fun SettingsDialog(vm: AppViewModel, onDismiss: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SPEECH_LANGUAGES.forEach { (tag, label) ->
                         FilterChip(
+                            enabled = voice,
                             selected = lang == tag,
                             onClick = { lang = tag; langTouched = true },
                             label = { Text(label) },
                         )
                     }
                 }
-                TextButton(onClick = {
+                TextButton(enabled = voice, onClick = {
                     word = AppViewModel.DEFAULT_WORD
                     lang = AppViewModel.DEFAULT_LANGUAGE
                 }) { Text("Reset to «${AppViewModel.DEFAULT_WORD}»") }
             }
         },
         confirmButton = {
-            TextButton(enabled = valid, onClick = {
-                vm.saveSettings(word, lang)
+            TextButton(enabled = valid || !voice, onClick = {
+                vm.saveSettings(if (valid) word else vm.keyword, lang, voice)
                 onDismiss()
             }) { Text("Save") }
         },

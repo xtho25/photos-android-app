@@ -3,7 +3,9 @@ package com.voicepick.photos.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -69,24 +72,27 @@ fun GridScreen(vm: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "${vm.sourceLabel} (${photos.size})",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                actions = {
-                    TextButton(onClick = { showSettings = true }) { Text("⚙", fontSize = 20.sp) }
-                    CounterBadge(
-                        vm.folderName,
-                        vm.folderCount,
-                        modifier = Modifier.padding(end = 8.dp),
-                        onClick = vm::backToFolders,
-                    )
-                },
-            )
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "${vm.sourceLabel} (${photos.size})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    actions = {
+                        TextButton(onClick = { showSettings = true }) { Text("⚙", fontSize = 20.sp) }
+                        CounterBadge(
+                            vm.folderName,
+                            vm.folderCount,
+                            modifier = Modifier.padding(end = 8.dp),
+                            onClick = vm::backToFolders,
+                        )
+                    },
+                )
+                SortRow(newestFirst = vm.newestFirst, onChange = vm::setSortNewestFirst)
+            }
         },
     ) { pad ->
         Box(
@@ -173,6 +179,29 @@ fun GridScreen(vm: AppViewModel) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SortRow(newestFirst: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Order", style = MaterialTheme.typography.labelLarge)
+        FilterChip(
+            selected = newestFirst,
+            onClick = { onChange(true) },
+            label = { Text("↓ Newest first") },
+        )
+        FilterChip(
+            selected = !newestFirst,
+            onClick = { onChange(false) },
+            label = { Text("↑ Oldest first") },
+        )
     }
 }
 

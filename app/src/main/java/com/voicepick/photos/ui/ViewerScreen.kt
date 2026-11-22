@@ -121,7 +121,8 @@ fun ViewerScreen(vm: AppViewModel, startIndex: Int) {
     // and the settings dialog is closed. Restarts when the word or language changes.
     val keyword = vm.keyword
     val language = vm.language
-    DisposableEffect(lifecycleOwner, hasMic, keyword, language, showSettings) {
+    val voiceEnabled = vm.voiceEnabled
+    DisposableEffect(lifecycleOwner, hasMic, keyword, language, showSettings, voiceEnabled) {
         val listener = KeywordListener(
             context,
             matcher = KeywordMatcher(keyword),
@@ -132,6 +133,7 @@ fun ViewerScreen(vm: AppViewModel, startIndex: Int) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> when {
+                    !voiceEnabled -> status = ListenStatus.Disabled
                     !hasMic -> status = ListenStatus.NoPermission
                     !showSettings -> listener.start()
                 }
@@ -140,7 +142,8 @@ fun ViewerScreen(vm: AppViewModel, startIndex: Int) {
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        view.keepScreenOn = true
+        // Hands-free use: keep the screen on while voice selection is active.
+        view.keepScreenOn = voiceEnabled
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             listener.stop()
@@ -249,7 +252,11 @@ fun ViewerScreen(vm: AppViewModel, startIndex: Int) {
                 status = status,
                 keyword = keyword,
                 onClick = {
-                    if (!hasMic) micLauncher.launch(Manifest.permission.RECORD_AUDIO) else showSettings = true
+                    if (voiceEnabled && !hasMic) {
+                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        showSettings = true
+                    }
                 },
             )
         }
@@ -330,6 +337,7 @@ private fun MicIndicator(status: ListenStatus, keyword: String, modifier: Modifi
         ListenStatus.Hearing -> Color(0xFFFFEE58) to "Hearing…"
         ListenStatus.Starting -> Color(0xFF9E9E9E) to "Mic starting…"
         ListenStatus.Off -> Color(0xFF616161) to "Mic off"
+        ListenStatus.Disabled -> Color(0xFF616161) to "Voice off · use ＋ Add"
         ListenStatus.Error -> Color(0xFFFF7043) to "Mic retrying…"
         ListenStatus.Unavailable -> Color(0xFFE53935) to "Speech recognition unavailable for this language"
         ListenStatus.NoPermission -> Color(0xFFE53935) to "Tap to allow microphone"
