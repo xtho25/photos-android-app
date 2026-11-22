@@ -13,6 +13,8 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   `local.properties` (git-ignored) holds `sdk.dir`.
 - `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
 - `./gradlew testDebugUnitTest`: JVM unit tests for the pure-Kotlin logic (no instrumented tests).
+- `abiFilters` is set to arm64-v8a and armeabi-v7a only. ML Kit's native OCR library is large
+  (~11 MB per ABI), so x86/emulator builds aren't supported.
 - `adb install -r app/build/outputs/apk/debug/app-debug.apk`
 - The user's test phone is a Xiaomi Redmi Note 13 on HyperOS 2 (Android 15):
   - Installing over adb needs *Developer options → Install via USB* turned on, and the install
@@ -20,7 +22,9 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   - `adb shell input …` (simulated taps) fails unless *USB debugging (Security settings)* is on,
     so UI flows usually can't be driven from adb. Screenshots work:
     `adb exec-out screencap -p > shot.png`.
-  - Debug voice matching with `adb logcat -s KeywordListener`.
+  - Debug voice matching with `adb logcat -s KeywordListener`; debug indexing with
+    `adb logcat -s IndexWorker WM-WorkerWrapper WM-GreedyScheduler`.
+  - Inspect the index with `adb shell run-as com.voicepick.photos ls -la databases/`.
 
 ## App flow
 
@@ -28,8 +32,11 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
 
 1. **Source** (`ui/SourceScreen.kt`): what to browse.
    - All photos.
-   - A time period: spoken (system speech dialog) or typed, parsed by `PeriodParser`, or picked on a
-     `DateRangePicker`. The parsed dates are shown and can be edited before continuing.
+   - A time period: spoken (system speech dialog via `ui/SpeechInput.kt`) or typed, parsed by
+     `PeriodParser`, or picked on a `DateRangePicker`. The parsed dates are shown and can be edited
+     before continuing.
+   - Search by content (`ui/SearchSection.kt`): shows index progress with Index now / Pause, a
+     query field with 🎤, category chips, and the match count before Continue.
    - A folder: any album, including ones the app can't write to.
 2. **Folders** (`ui/FolderPickerScreen.kt`): the working folder. The last one used is offered first.
    A new folder is created as `Pictures/<name>/`. Only `Pictures/` and `DCIM/` albums are listed,
@@ -64,7 +71,33 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   - Definitions chosen by the user: Πάσχα = Orthodox Easter Sunday ± 7 days;
     Καλοκαίρι = Jun 1–Sep 30; Φθινόπωρο = Oct–Nov; Χειμώνας Y = Dec (Y-1)–Feb Y; Άνοιξη = Mar–May;
     Χριστούγεννα = Dec 20–Jan 7.
-- `PhotoSource.kt`: `All` / `Dates(start, end, label)` / `Folder(relPath)`.
+- `PhotoSource.kt`: `All` / `Dates(start, end, label)` / `Folder(relPath)` / `Search(query)`.
+  Search results are loaded as all photos and then filtered by the ids from `SearchIndex`.
+- `search/`: content search, phase 1 (text recognition only).
+  - `IndexWorker`: WorkManager job that runs on-device OCR (ML Kit Latin text recognition, model
+    bundled) on new or changed photos, decoded at ≤1600px, and stores the results in `SearchIndex`.
+    A process-wide `Mutex` lets only one run happen at a time.
+    - Automatic runs: periodic, hourly, with `KEY_AUTOMATIC`. They index only while plugged in.
+      **WorkManager's `setRequiresCharging` misreads the charging state on HyperOS**, so the worker
+      checks the battery itself (`isPluggedIn`).
+    - "Index now": a one-time run with no conditions.
+    - Pause: cancels by tag and pushes the next automatic run 6 h out.
+    - Measured on the Redmi Note 13: about 0.27 s per photo (~45 min per 10k photos).
+    - It tries to run as a foreground job with a progress notification (dataSync). Android often
+      refuses this for jobs started in the background; it then continues without a notification
+      (10-minute limit per run, then it resumes later).
+  - `SearchIndex`: SQLite `search_index.db`, one row per MediaStore id (`modified`,
+    `categories` as `,key,…`, `text` lowercase and accent-free). `search(SearchQuery)` uses LIKE.
+  - `DocumentClassifier`: text and path → `Category` (passport via MRZ `P<XXX` or the word
+    PASSPORT; ID card via TD1 MRZ or "IDENTITY CARD"; licence; receipt by price count plus
+    keywords; bank card by card number plus expiry; screenshot by path; document by ≥25 words).
+  - `SearchQuery`: Greek/English query → categories (by word prefix, e.g. `διαβατηρ`, `passport`)
+    plus free-text terms that must appear in the recognized text. "ID card" / "κάρτα ταυτότητας"
+    doesn't also mean bank card.
+  - Known limits: ML Kit has no Greek OCR, so Greek text inside photos can't be searched (the UI
+    explains this when there are no results). Old Greek ID cards without an MRZ won't be detected.
+    Phase 2 (semantic image search with CLIP/MobileCLIP, plus Greek queries) is planned but not
+    started; the user wants to discuss it first.
 - `DateFormats.kt`: dates in the **phone's language** (localized FULL/MEDIUM formats; Today/Yesterday
   via `DateUtils`).
 - `MainActivity.kt`: permission gate (READ_MEDIA_IMAGES or READ_EXTERNAL_STORAGE, plus

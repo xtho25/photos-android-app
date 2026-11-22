@@ -15,6 +15,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import com.voicepick.photos.search.IndexWorker
+import com.voicepick.photos.search.SearchIndex
+import com.voicepick.photos.search.SearchQuery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +58,15 @@ sealed interface GridEntry {
 
 /** Where a photo sits within its day: [position] of [count] photos taken on [day]. */
 data class PhotoDay(val day: LocalDate, val position: Int, val count: Int)
+
+/** Content-search index progress: [indexed] of [total] photos; [running] with [runDone]/[runTotal] this run. */
+data class IndexStatus(
+    val indexed: Int,
+    val total: Int,
+    val running: Boolean,
+    val runDone: Int = 0,
+    val runTotal: Int = 0,
+)
 
 /** Languages offered for speech recognition: tag → label. */
 val SPEECH_LANGUAGES = linkedMapOf(
@@ -132,10 +146,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         override fun onChange(selfChange: Boolean, uri: Uri?) = scheduleFolderRefresh()
     }
 
+    private val searchIndex = SearchIndex.get(app)
+
+    var indexStatus by mutableStateOf<IndexStatus?>(null)
+        private set
+
     init {
         app.contentResolver.registerContentObserver(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer,
         )
+        IndexWorker.schedulePeriodic(app)
+        viewModelScope.launch {
+            WorkManager.getInstance(app).getWorkInfosByTagFlow(IndexWorker.WORK_TAG).collect { infos ->
+                val run = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
+                val counts = indexCounts()
+                indexStatus = IndexStatus(
+                    indexed = counts.first,
+                    total = counts.second,
+                    running = run != null,
+                    runDone = run?.progress?.getInt(IndexWorker.KEY_DONE, 0) ?: 0,
+                    runTotal = run?.progress?.getInt(IndexWorker.KEY_TOTAL, 0) ?: 0,
+                )
+            }
+        }
+    }
+
+    private suspend fun indexCounts(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        runCatching { searchIndex.count() to repo.countImages() }.getOrDefault(0 to 0)
+    }
+
+    fun refreshIndexStatus() {
+        viewModelScope.launch {
+            val (indexed, total) = indexCounts()
+            indexStatus = (indexStatus ?: IndexStatus(0, 0, false)).copy(indexed = indexed, total = total)
+        }
+    }
+
+    fun startIndexing() = IndexWorker.runNow(getApplication())
+
+    fun pauseIndexing() = IndexWorker.stop(getApplication())
+
+    /** How many indexed photos match [query] (for the preview before continuing). */
+    suspend fun countMatches(query: String): Int = withContext(Dispatchers.IO) {
+        runCatching { searchIndex.search(SearchQuery.parse(query)).size }.getOrDefault(0)
     }
 
     override fun onCleared() {
@@ -162,6 +215,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             PhotoSource.All -> "All photos"
             is PhotoSource.Folder -> "📁 " + MediaRepository.folderName(s.relPath)
             is PhotoSource.Dates -> s.label ?: DateFormats.range(s.start, s.end)
+            is PhotoSource.Search -> "🔍 " + s.query
         }
 
     fun chooseSource(src: PhotoSource) {
@@ -186,7 +240,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadPhotos(key: Pair<PhotoSource, String>) {
         viewModelScope.launch {
             photosLoading = true
-            val loaded = runCatching { repo.loadImages(key.first, key.second) }.getOrDefault(emptyList())
+            val loaded = runCatching {
+                val all = repo.loadImages(key.first, key.second)
+                when (val s = key.first) {
+                    is PhotoSource.Search -> {
+                        val ids = withContext(Dispatchers.IO) { searchIndex.search(SearchQuery.parse(s.query)) }
+                        all.filter { it.id in ids }
+                    }
+                    else -> all
+                }
+            }.getOrDefault(emptyList())
             val sections = withContext(Dispatchers.Default) { buildSections(loaded) }
             photos = loaded
             gridEntries = sections.entries

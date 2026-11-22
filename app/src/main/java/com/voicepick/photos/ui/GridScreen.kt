@@ -102,6 +102,7 @@ fun GridScreen(vm: AppViewModel) {
                     is PhotoSource.Folder ->
                         if (s.relPath == vm.folder) "This album is also the working folder.\nPick a different one."
                         else "No photos in this album"
+                    is PhotoSource.Search -> "No photos match «${s.query}»"
                     PhotoSource.All -> "No photos found"
                 }
                 Text(why, Modifier.align(Alignment.Center).padding(24.dp))

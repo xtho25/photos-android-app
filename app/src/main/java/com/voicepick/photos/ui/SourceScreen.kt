@@ -1,10 +1,5 @@
 package com.voicepick.photos.ui
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.speech.RecognizerIntent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,7 +52,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-private enum class Mode { None, Dates, Folder }
+private enum class Mode { None, Dates, Folder, Search }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +65,7 @@ fun SourceScreen(vm: AppViewModel) {
             when (previous) {
                 is PhotoSource.Dates -> Mode.Dates
                 is PhotoSource.Folder -> Mode.Folder
+                is PhotoSource.Search -> Mode.Search
                 PhotoSource.All -> Mode.None
             },
         )
@@ -96,26 +92,13 @@ fun SourceScreen(vm: AppViewModel) {
         }
     }
 
-    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        val heard = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
-        if (heard.isNotEmpty()) {
-            periodText = heard[0]
-            tryParse(heard)
-        }
-    }
-
-    fun listen() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, vm.language)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a period, e.g. «Πάσχα 2024»")
-        }
-        try {
-            speechLauncher.launch(intent)
-        } catch (e: ActivityNotFoundException) {
-            error = "No speech recognizer found on this phone. Type the period instead."
-        }
+    val listen = rememberSpeechInput(
+        language = vm.language,
+        prompt = "Say a period, e.g. «Πάσχα 2024»",
+        onError = { error = it },
+    ) { heard ->
+        periodText = heard[0]
+        tryParse(heard)
     }
 
     if (showCalendar) {
@@ -180,7 +163,7 @@ fun SourceScreen(vm: AppViewModel) {
                                     keyboardActions = KeyboardActions(onDone = { tryParse(listOf(periodText)) }),
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Button(onClick = ::listen, contentPadding = PaddingValues(12.dp)) {
+                                Button(onClick = listen, contentPadding = PaddingValues(12.dp)) {
                                     Text("🎤", fontSize = 20.sp)
                                 }
                             }
@@ -210,7 +193,22 @@ fun SourceScreen(vm: AppViewModel) {
                 }
             }
 
-            // 3. A folder
+            // 3. Search by content
+            item {
+                OptionCard(
+                    emoji = "🔍",
+                    title = "Search by content",
+                    subtitle = "Passports, IDs, receipts, cards, screenshots, text…",
+                    selected = mode == Mode.Search,
+                    onClick = { mode = if (mode == Mode.Search) Mode.None else Mode.Search },
+                ) {
+                    if (mode == Mode.Search) {
+                        SearchSection(vm, initialQuery = (previous as? PhotoSource.Search)?.query.orEmpty())
+                    }
+                }
+            }
+
+            // 4. A folder
             item {
                 OptionCard(
                     emoji = "📁",

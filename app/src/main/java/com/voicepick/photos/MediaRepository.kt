@@ -33,6 +33,9 @@ data class Album(
     val count: Int,
 )
 
+/** What the search indexer needs to know about an image. */
+data class IndexItem(val id: Long, val uri: Uri, val modified: Long, val relPath: String?, val name: String?)
+
 data class FolderContents(val count: Int, val keys: Set<String>)
 
 sealed interface CopyResult {
@@ -74,7 +77,7 @@ class MediaRepository(context: Context) {
             args += excludeRelPath
         }
         when (source) {
-            PhotoSource.All -> Unit
+            PhotoSource.All, is PhotoSource.Search -> Unit // search results are filtered by the caller
             is PhotoSource.Folder -> {
                 clauses += "$rel = ?"
                 args += source.relPath
@@ -111,6 +114,32 @@ class MediaRepository(context: Context) {
             }
         }
         out.sortedByDescending { it.dateMillis }
+    }
+
+    /** All images, newest first, for the content-search indexer. */
+    suspend fun listForIndex(): List<IndexItem> = withContext(Dispatchers.IO) {
+        val out = ArrayList<IndexItem>()
+        resolver.query(
+            readUri,
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.RELATIVE_PATH,
+                MediaStore.Images.Media.DISPLAY_NAME,
+            ),
+            null, null,
+            "${MediaStore.Images.Media.DATE_ADDED} DESC",
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getLong(0)
+                out += IndexItem(id, ContentUris.withAppendedId(readUri, id), c.getLong(1), c.getString(2), c.getString(3))
+            }
+        }
+        out
+    }
+
+    suspend fun countImages(): Int = withContext(Dispatchers.IO) {
+        resolver.query(readUri, arrayOf(MediaStore.Images.Media._ID), null, null, null)?.use { it.count } ?: 0
     }
 
     /**

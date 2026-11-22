@@ -11,4 +11,7 @@ sealed interface PhotoSource {
 
     /** Photos in one album, by MediaStore RELATIVE_PATH. */
     data class Folder(val relPath: String) : PhotoSource
+
+    /** Photos whose content matches a search, e.g. "διαβατήριο" (see search/SearchQuery). */
+    data class Search(val query: String) : PhotoSource
 }
