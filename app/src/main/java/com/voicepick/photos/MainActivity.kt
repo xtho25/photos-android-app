@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.voicepick.photos.ui.FolderPickerScreen
 import com.voicepick.photos.ui.GridScreen
+import com.voicepick.photos.ui.IndexConsentDialog
 import com.voicepick.photos.ui.SourceScreen
 import com.voicepick.photos.ui.ViewerScreen
 
@@ -64,6 +65,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun App(vm: AppViewModel = viewModel()) {
+    // First start: ask before indexing photos for content search.
+    if (vm.indexConsent == null) {
+        IndexConsentDialog(
+            onAllow = { vm.setIndexConsent(true) },
+            onDeny = { vm.setIndexConsent(false) },
+        )
+    }
     when (val screen = vm.screen) {
         Screen.Source -> SourceScreen(vm)
         Screen.Folders -> {

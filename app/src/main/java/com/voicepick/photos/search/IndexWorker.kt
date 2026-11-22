@@ -62,6 +62,8 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
 
     private suspend fun index(): Result {
         val ctx = applicationContext
+        // Never read photos unless the user agreed (also guards schedules left from older versions).
+        if (!isAllowed(ctx)) return Result.success()
         if (automatic && !isPluggedIn(ctx)) return Result.success()
         val readPerm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
         if (ContextCompat.checkSelfPermission(ctx, readPerm) != PackageManager.PERMISSION_GRANTED) return Result.success()
@@ -82,7 +84,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
             for ((i, item) in todo.withIndex()) {
-                if (isStopped) break
+                if (isStopped || !isAllowed(ctx)) break
                 if (automatic && i % 10 == 0 && !isPluggedIn(ctx)) {
                     Log.i(TAG, "unplugged, pausing")
                     break
@@ -178,6 +180,23 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         private const val WORK_PERIODIC = "search-index-periodic"
 
         private val running = Mutex()
+
+        /** SharedPreferences file and key holding the user's answer to "index my photos?". */
+        const val PREFS = "settings"
+        const val KEY_CONSENT = "index_consent"
+
+        /** null = not asked yet. */
+        fun consent(context: Context): Boolean? {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            return if (prefs.contains(KEY_CONSENT)) prefs.getBoolean(KEY_CONSENT, false) else null
+        }
+
+        fun isAllowed(context: Context) = consent(context) == true
+
+        /** Turns indexing off completely: no automatic runs until the user allows it again. */
+        fun disable(context: Context) {
+            WorkManager.getInstance(context).cancelAllWorkByTag(WORK_TAG)
+        }
 
         /**
          * Checks hourly and indexes new photos only while the phone is plugged in.

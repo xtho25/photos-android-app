@@ -63,6 +63,11 @@ class SearchIndex private constructor(context: Context) :
         }
     }
 
+    /** Deletes everything that was indexed. */
+    fun clear() {
+        writableDatabase.delete("photos", null, null)
+    }
+
     fun count(): Int =
         readableDatabase.rawQuery("SELECT COUNT(*) FROM photos", null).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
 

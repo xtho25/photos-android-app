@@ -35,7 +35,9 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
    - A time period: spoken (system speech dialog via `ui/SpeechInput.kt`) or typed, parsed by
      `PeriodParser`, or picked on a `DateRangePicker`. The parsed dates are shown and can be edited
      before continuing.
-   - Search by content (`ui/SearchSection.kt`): shows index progress with Index now / Pause, a
+   - Search by content (`ui/SearchSection.kt`): if indexing isn't allowed, shows only "Turn on"
+     (which asks first). Otherwise it shows "Turn off content search" (asks, then deletes the index),
+     index progress with Index now / Pause, a
      query field with 🎤, category chips, and the match count before Continue.
    - A folder: any album, including ones the app can't write to.
 2. **Folders** (`ui/FolderPickerScreen.kt`): the working folder. The last one used is offered first.
@@ -81,6 +83,11 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   - `IndexWorker`: WorkManager job that runs on-device OCR (ML Kit Latin text recognition, model
     bundled) on new or changed photos, decoded at ≤1600px, and stores the results in `SearchIndex`.
     A process-wide `Mutex` lets only one run happen at a time.
+    - **Consent first:** nothing is indexed until the user allows it. On first start `App()` in
+      `MainActivity` shows `ui/IndexConsentDialog` while `index_consent` isn't set. Allow schedules
+      the automatic runs. Not now (or tapping outside) cancels all index work and clears
+      `SearchIndex`. The worker also checks `IndexWorker.isAllowed()` at the start and between
+      photos, so old schedules can't index without consent.
     - Automatic runs: periodic, hourly, with `KEY_AUTOMATIC`. They index only while plugged in.
       **WorkManager's `setRequiresCharging` misreads the charging state on HyperOS**, so the worker
       checks the battery itself (`isPluggedIn`).
@@ -118,10 +125,14 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
 - The working folder is excluded from the browsed photos, so you never swipe onto copies.
 - A photo's date is `DATE_TAKEN`, falling back to `DATE_ADDED`. Lists are sorted newest first in Kotlin.
 - Settings live in SharedPreferences `settings`: `folder`, `keyword`, `language`, `voice_enabled`
-  (default true) and `newest_first` (default true).
+  (default true), `newest_first` (default true) and `index_consent` (missing = not asked yet).
+- **Never read photo contents for search without `index_consent == true`.**
 - UI text is English and inline (no string resources apart from `app_name`). Dates follow the phone locale.
 
 ## Working on this repo
+
+- GitHub: private repo `xtho25/photos-android-app` (remote `origin`, HTTPS through the `gh` login).
+  Push after committing.
 
 - **Keep this file up to date** whenever features, structure, build steps or decisions change.
 - Before building a big or uncertain feature, explain the options and trade-offs and ask the user first.

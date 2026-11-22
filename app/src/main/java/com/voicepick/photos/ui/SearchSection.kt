@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -25,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,8 +90,45 @@ fun SearchSection(vm: AppViewModel, initialQuery: String) {
         if (needsAsk) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.startIndexing()
     }
 
+    var askEnable by remember { mutableStateOf(false) }
+    var askDisable by remember { mutableStateOf(false) }
+    if (askEnable) {
+        IndexConsentDialog(
+            onAllow = { askEnable = false; vm.setIndexConsent(true) },
+            onDeny = { askEnable = false },
+        )
+    }
+    if (askDisable) {
+        AlertDialog(
+            onDismissRequest = { askDisable = false },
+            title = { Text("Turn off content search?") },
+            text = { Text("Indexing stops and the text stored from your photos is deleted from the phone.") },
+            confirmButton = {
+                TextButton(onClick = { askDisable = false; searched = null; vm.setIndexConsent(false) }) {
+                    Text("Turn off")
+                }
+            },
+            dismissButton = { TextButton(onClick = { askDisable = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (vm.indexConsent != true) {
+        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Content search is off. To use it, the app first reads the text in your photos, " +
+                    "on this phone only.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = { askEnable = true }) { Text("Turn on") }
+        }
+        return
+    }
+
     Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         IndexStatusBlock(vm.indexStatus, onStart = ::indexNow, onPause = vm::pauseIndexing)
+        TextButton(onClick = { askDisable = true }, contentPadding = PaddingValues(0.dp)) {
+            Text("Turn off content search", style = MaterialTheme.typography.bodySmall)
+        }
         HorizontalDivider()
 
         Row(verticalAlignment = Alignment.CenterVertically) {

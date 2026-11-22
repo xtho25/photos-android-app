@@ -170,11 +170,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var indexStatus by mutableStateOf<IndexStatus?>(null)
         private set
 
+    /** The user's answer to "index all photos for content search?"; null = not asked yet. */
+    var indexConsent by mutableStateOf(IndexWorker.consent(app))
+        private set
+
+    fun setIndexConsent(allow: Boolean) {
+        val app = getApplication<Application>()
+        prefs.edit().putBoolean(IndexWorker.KEY_CONSENT, allow).apply()
+        indexConsent = allow
+        if (allow) {
+            IndexWorker.schedulePeriodic(app)
+        } else {
+            IndexWorker.disable(app)
+            viewModelScope.launch(Dispatchers.IO) { runCatching { searchIndex.clear() } }
+        }
+        refreshIndexStatus()
+    }
+
     init {
         app.contentResolver.registerContentObserver(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer,
         )
-        IndexWorker.schedulePeriodic(app)
+        if (indexConsent == true) IndexWorker.schedulePeriodic(app) else IndexWorker.disable(app)
         viewModelScope.launch {
             WorkManager.getInstance(app).getWorkInfosByTagFlow(IndexWorker.WORK_TAG).collect { infos ->
                 val run = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
