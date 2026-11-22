@@ -133,6 +133,13 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
 
 - GitHub: private repo `xtho25/photos-android-app` (remote `origin`, HTTPS through the `gh` login).
   Push after committing.
+- **Builds go to GitHub Releases, never into git.** For a new release:
+  1. Bump `versionCode` (by +1) and `versionName` in `app/build.gradle.kts`, then commit and push.
+  2. Run `./gradlew clean assembleDebug`.
+  3. Copy the APK as `PhotoChooser-v<version>-debug.apk`.
+  4. Run `gh release create v<version> <apk> --target main --title "Photo Chooser v<version>" --notes …`.
+  Releases are debug-signed for now. A release-signed build would need a keystore, which must
+  never be committed.
 
 - **Keep this file up to date** whenever features, structure, build steps or decisions change.
 - Before building a big or uncertain feature, explain the options and trade-offs and ask the user first.
