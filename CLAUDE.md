@@ -11,6 +11,10 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
 
 - JDK 17 (system). Android SDK at `~/Android/Sdk` (cmdline-tools, platform 35, build-tools 35).
   `local.properties` (git-ignored) holds `sdk.dir`.
+- Gradle wrapper 9.7.1 (updated by the user), Android Gradle Plugin 8.7.3, Kotlin 2.0.21.
+  It builds fine, but Gradle reports deprecations that will break with Gradle 10, mostly from the
+  older AGP. Upgrade AGP/Kotlin before ever moving to Gradle 10. Kotlin's `jvmTarget` is set via
+  `kotlin { compilerOptions { … } }`, not the deprecated `kotlinOptions`.
 - `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
 - `./gradlew testDebugUnitTest`: JVM unit tests for the pure-Kotlin logic (no instrumented tests).
 - `abiFilters` is set to arm64-v8a and armeabi-v7a only. ML Kit's native OCR library is large
