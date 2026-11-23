@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.voicepick.photos.AppViewModel
+import com.voicepick.photos.Edition
 import com.voicepick.photos.DateFormats
 import com.voicepick.photos.Period
 import com.voicepick.photos.PeriodParser
@@ -198,7 +199,11 @@ fun SourceScreen(vm: AppViewModel) {
                 OptionCard(
                     emoji = "🔍",
                     title = "Search by content",
-                    subtitle = "Passports, IDs, receipts, cards, screenshots, text…",
+                    subtitle = if (Edition.VISUAL_SEARCH) {
+                        "Anything you see: θάλασσα, σκύλος, τούρτα… plus passports, receipts, text"
+                    } else {
+                        "Passports, IDs, receipts, cards, screenshots, text…"
+                    },
                     selected = mode == Mode.Search,
                     onClick = { mode = if (mode == Mode.Search) Mode.None else Mode.Search },
                 ) {

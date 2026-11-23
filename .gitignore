@@ -3,3 +3,5 @@ build/
 local.properties
 .idea/
 *.iml
+# Converted AI models (built by tools/convert_tinyclip.py; too large for git)
+/models/

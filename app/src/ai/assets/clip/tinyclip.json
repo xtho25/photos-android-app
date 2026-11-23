@@ -1,0 +1,24 @@
+{
+  "model": "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M",
+  "licence": "MIT",
+  "image_size": 224,
+  "mean": [
+    0.48145466,
+    0.4578275,
+    0.40821073
+  ],
+  "std": [
+    0.26862954,
+    0.26130258,
+    0.27577711
+  ],
+  "context_length": 77,
+  "start_token": 49406,
+  "end_token": 49407,
+  "pad_token": 49407,
+  "prompt": "a photo of {}.",
+  "embed_dim": 512,
+  "min_score": 0.2493,
+  "margin_from_best": 0.06,
+  "max_results": 300
+}

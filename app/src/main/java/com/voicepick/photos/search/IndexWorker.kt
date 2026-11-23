@@ -26,20 +26,18 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.google.android.gms.tasks.Task
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.voicepick.photos.Edition
+import com.voicepick.photos.IndexItem
 import com.voicepick.photos.KeywordMatcher
 import com.voicepick.photos.MediaRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.math.max
 
 /** Reads the text in every new or changed photo (on-device OCR) and stores it in [SearchIndex]. */
@@ -69,11 +67,18 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (ContextCompat.checkSelfPermission(ctx, readPerm) != PackageManager.PERMISSION_GRANTED) return Result.success()
 
         val index = SearchIndex.get(ctx)
+        // AI edition: also compute a visual embedding per photo. Standard edition: null.
+        val engine = Edition.semanticEngine(ctx)
         val items = MediaRepository(ctx).listForIndex()
         val todo = withContext(Dispatchers.IO) {
             index.retainOnly(items.mapTo(HashSet()) { it.id })
-            val known = index.indexedVersions()
-            items.filter { known[it.id] != it.modified }
+            val known = index.indexedState()
+            items.mapNotNull { item ->
+                val k = known[item.id]
+                val needsText = k == null || k.modified != item.modified
+                val needsEmbedding = engine != null && (needsText || k?.hasEmbedding != true)
+                if (needsText || needsEmbedding) Job(item, needsText, needsEmbedding) else null
+            }
         }
         if (todo.isEmpty()) return Result.success()
         Log.i(TAG, "indexing ${todo.size} photos")
@@ -83,17 +88,13 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         var processed = 0
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
-            for ((i, item) in todo.withIndex()) {
+            for ((i, job) in todo.withIndex()) {
                 if (isStopped || !isAllowed(ctx)) break
                 if (automatic && i % 10 == 0 && !isPluggedIn(ctx)) {
                     Log.i(TAG, "unplugged, pausing")
                     break
                 }
-                val text = recognize(recognizer, item.uri).orEmpty()
-                val categories = DocumentClassifier.classify(text, item.relPath, item.name)
-                withContext(Dispatchers.IO) {
-                    index.put(item.id, item.modified, categories, KeywordMatcher.normalize(text))
-                }
+                process(job, recognizer, engine, index)
                 processed = i + 1
                 if (processed % 10 == 0 || i == todo.lastIndex) updateProgress(processed, todo.size)
                 if (processed % 50 == 0) Log.i(TAG, "progress $processed/${todo.size}")
@@ -106,16 +107,42 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         return Result.success()
     }
 
-    private suspend fun recognize(recognizer: TextRecognizer, uri: Uri): String? = try {
-        val bitmap = withContext(Dispatchers.IO) { decode(uri) }
-        try {
-            recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
-        } finally {
-            bitmap.recycle()
+    /** What still has to be done for one photo. */
+    private class Job(val item: IndexItem, val needsText: Boolean, val needsEmbedding: Boolean)
+
+    /** Decodes the photo once, then reads its text and/or computes its embedding. */
+    private suspend fun process(job: Job, recognizer: TextRecognizer, engine: SemanticEngine?, index: SearchIndex) {
+        val item = job.item
+        val bitmap = try {
+            withContext(Dispatchers.IO) { decode(item.uri) }
+        } catch (e: Exception) {
+            Log.w(TAG, "could not decode ${item.uri}", e)
+            null
         }
+        try {
+            val text = if (job.needsText && bitmap != null) recognize(recognizer, bitmap) else ""
+            val embedding = if (job.needsEmbedding && bitmap != null) engine?.embedImage(bitmap) else null
+            withContext(Dispatchers.IO) {
+                if (job.needsText) {
+                    val categories = DocumentClassifier.classify(text, item.relPath, item.name)
+                    index.put(
+                        item.id, item.modified, categories, KeywordMatcher.normalize(text),
+                        embedding = embedding, embeddingTried = job.needsEmbedding,
+                    )
+                } else {
+                    index.setEmbedding(item.id, embedding)
+                }
+            }
+        } finally {
+            bitmap?.recycle()
+        }
+    }
+
+    private suspend fun recognize(recognizer: TextRecognizer, bitmap: Bitmap): String = try {
+        recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
     } catch (e: Exception) {
-        Log.w(TAG, "could not read $uri", e)
-        null
+        Log.w(TAG, "text recognition failed", e)
+        ""
     }
 
     /** Decodes downscaled (longest side ≤ [MAX_SIDE]) to keep memory and time low; EXIF rotation is applied. */
@@ -237,10 +264,4 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             schedulePeriodic(context, initialDelayHours = 6)
         }
     }
-}
-
-private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->
-    addOnSuccessListener { cont.resume(it) }
-    addOnFailureListener { cont.resumeWithException(it) }
-    addOnCanceledListener { cont.cancel() }
 }

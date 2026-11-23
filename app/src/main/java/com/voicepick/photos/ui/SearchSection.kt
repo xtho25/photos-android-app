@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.voicepick.photos.AppViewModel
+import com.voicepick.photos.Edition
 import com.voicepick.photos.IndexStatus
 import com.voicepick.photos.PhotoSource
 import com.voicepick.photos.search.Category
@@ -60,6 +61,8 @@ fun SearchSection(vm: AppViewModel, initialQuery: String) {
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var searched by remember { mutableStateOf<String?>(null) }
     var matches by remember { mutableStateOf(0) }
+    var note by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { vm.refreshIndexStatus() }
@@ -69,8 +72,12 @@ fun SearchSection(vm: AppViewModel, initialQuery: String) {
         error = null
         if (q.isBlank()) return
         scope.launch {
-            matches = vm.countMatches(q)
+            busy = true
+            val outcome = vm.search(q)
+            matches = outcome.ids.size
+            note = outcome.note
             searched = q
+            busy = false
         }
     }
 
@@ -135,7 +142,9 @@ fun SearchSection(vm: AppViewModel, initialQuery: String) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it; error = null },
-                placeholder = { Text("e.g. διαβατήριο, receipts, Lidl") },
+                placeholder = {
+                    Text(if (Edition.VISUAL_SEARCH) "e.g. θάλασσα, σκύλος, διαβατήριο" else "e.g. διαβατήριο, receipts, Lidl")
+                },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -153,15 +162,17 @@ fun SearchSection(vm: AppViewModel, initialQuery: String) {
         }
 
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (busy) Text("Searching…", style = MaterialTheme.typography.bodySmall)
 
-        searched?.let { q ->
+        searched?.takeIf { !busy }?.let { q ->
             HorizontalDivider()
             val parsed = SearchQuery.parse(q)
             Text(
                 if (matches == 1) "1 photo matches «$q»" else "$matches photos match «$q»",
                 fontWeight = FontWeight.SemiBold,
             )
-            if (matches == 0 && parsed.greekTerms.isNotEmpty()) {
+            note?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            if (!Edition.VISUAL_SEARCH && matches == 0 && parsed.greekTerms.isNotEmpty()) {
                 Text(
                     "Text inside photos is read in Latin letters only, so Greek words written in photos " +
                         "can't be found yet. Try a category such as «διαβατήρια» or «αποδείξεις».",

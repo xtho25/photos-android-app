@@ -20,6 +20,8 @@ import androidx.work.WorkManager
 import com.voicepick.photos.search.IndexWorker
 import com.voicepick.photos.search.SearchIndex
 import com.voicepick.photos.search.SearchQuery
+import com.voicepick.photos.search.SemanticRanker
+import com.voicepick.photos.search.SemanticSearchException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -208,7 +210,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun indexCounts(): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        runCatching { searchIndex.count() to repo.countImages() }.getOrDefault(0 to 0)
+        // AI edition: a photo is only "ready" once its visual embedding was processed too.
+        runCatching { searchIndex.count(withEmbedding = Edition.VISUAL_SEARCH) to repo.countImages() }.getOrDefault(0 to 0)
     }
 
     fun refreshIndexStatus() {
@@ -222,9 +225,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun pauseIndexing() = IndexWorker.stop(getApplication())
 
-    /** How many indexed photos match [query] (for the preview before continuing). */
-    suspend fun countMatches(query: String): Int = withContext(Dispatchers.IO) {
-        runCatching { searchIndex.search(SearchQuery.parse(query)).size }.getOrDefault(0)
+    /** Result of a content search: matching photo ids, plus an optional message for the user. */
+    data class SearchOutcome(val ids: Set<Long>, val note: String? = null)
+
+    /** The preview's search is reused when Continue loads the photos (valid for a minute). */
+    private var lastSearch: Triple<String, Long, SearchOutcome>? = null
+
+    /**
+     * Text/document search (both editions). In the AI edition, queries that aren't a document
+     * category ("passports", "receipts"…) also run a visual search, and the results are merged.
+     */
+    suspend fun search(query: String): SearchOutcome {
+        val now = System.currentTimeMillis()
+        lastSearch?.let { (q, at, r) -> if (q == query && now - at < 60_000) return r }
+        val outcome = withContext(Dispatchers.IO) {
+            val parsed = SearchQuery.parse(query)
+            val textIds = runCatching { searchIndex.search(parsed) }.getOrDefault(emptySet())
+            val engine = Edition.semanticEngine(getApplication())
+            if (engine == null || parsed.categories.isNotEmpty() || query.isBlank()) {
+                return@withContext SearchOutcome(textIds)
+            }
+            try {
+                val q = engine.embedQuery(query)
+                val hits = SemanticRanker.rank(
+                    q, searchIndex.loadEmbeddings(), engine.minScore, engine.marginFromBest, engine.maxResults,
+                )
+                SearchOutcome(textIds + hits.map { it.first })
+            } catch (e: SemanticSearchException) {
+                SearchOutcome(textIds, e.message)
+            } catch (e: Exception) {
+                android.util.Log.w("AppViewModel", "visual search failed", e)
+                SearchOutcome(textIds, "Visual search failed: ${e.message}")
+            }
+        }
+        if (outcome.note == null) lastSearch = Triple(query, now, outcome)
+        return outcome
     }
 
     override fun onCleared() {
@@ -280,7 +315,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val all = repo.loadImages(key.first, key.second)
                 when (val s = key.first) {
                     is PhotoSource.Search -> {
-                        val ids = withContext(Dispatchers.IO) { searchIndex.search(SearchQuery.parse(s.query)) }
+                        val ids = search(s.query).ids
                         all.filter { it.id in ids }
                     }
                     else -> all
