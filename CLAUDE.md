@@ -136,7 +136,10 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
       checks the battery itself (`isPluggedIn`).
     - "Index now": a one-time run with no conditions.
     - Pause: cancels by tag and pushes the next automatic run 6 h out.
-    - Measured on the Redmi Note 13: about 0.27 s per photo (~45 min per 10k photos).
+    - Measured on the Redmi Note 13: about 0.27 s per photo for text only (standard, ~45 min per 10k
+      photos) and 0.44 s per photo for text plus embedding (AI, ~73 min per 10k photos).
+    - SVG images can't be decoded by `ImageDecoder`. They get an empty text row and a failed
+      embedding, so they're never retried.
     - It tries to run as a foreground job with a progress notification (dataSync). Android often
       refuses this for jobs started in the background; it then continues without a notification
       (10-minute limit per run, then it resumes later).
