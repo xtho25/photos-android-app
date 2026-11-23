@@ -201,6 +201,8 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
   never be committed.
 
 - **Keep this file up to date** whenever features, structure, build steps or decisions change.
+  Also keep `README.md` (the user-facing description on GitHub) in sync when features, editions,
+  sizes or install/build steps change.
 - Before building a big or uncertain feature, explain the options and trade-offs and ask the user first.
 - Add JVM unit tests for pure logic (see `app/src/test/`, `app/src/testAi/`). Build both editions
   and run both test tasks before committing.
