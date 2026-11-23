@@ -189,7 +189,8 @@ Kotlin + Jetpack Compose (Material 3), single Activity, minSdk 29, target/compil
 ## Working on this repo
 
 - GitHub: private repo `xtho25/photos-android-app` (remote `origin`, HTTPS through the `gh` login).
-  Push after committing.
+  Push after committing. The app's code is MIT-licensed (`LICENSE`, © xtho25). The bundled TinyCLIP
+  weights are MIT too (Microsoft).
 - **Builds go to GitHub Releases, never into git.** Each release has **both editions** (one release,
   two APKs). For a new release:
   1. Bump `versionCode` (by +1) and `versionName` in `app/build.gradle.kts`, then commit and push.

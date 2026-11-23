@@ -119,6 +119,10 @@ tools/              model conversion script
   sunset), weaker at fine detail, and it doesn't recognise faces.
 - Releases are debug-signed.
 
+## License
+
+[MIT](LICENSE). Third-party components keep their own licences (see Credits).
+
 ## Credits
 
 - [TinyCLIP](https://github.com/microsoft/Cream/tree/main/TinyCLIP) by Microsoft, MIT licence
